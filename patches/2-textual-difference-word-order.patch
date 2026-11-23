@@ -1,0 +1,56 @@
+diff --git a/packages/evals/src/scorers/code/textual-difference/index.test.ts b/packages/evals/src/scorers/code/textual-difference/index.test.ts
+index a561961..355621c 100644
+--- a/packages/evals/src/scorers/code/textual-difference/index.test.ts
++++ b/packages/evals/src/scorers/code/textual-difference/index.test.ts
+@@ -128,4 +128,13 @@ describe('TextualDifferenceMetric', () => {
+       lengthDiff: 0,
+     });
+   });
++
++  it('should count changes when the same words appear in a different order', async () => {
++    const inputMessages = [createTestMessage({ content: 'dog bites man', role: 'user', id: 'test-input' })];
++    const output = [createTestMessage({ content: 'man bites dog', role: 'assistant', id: 'test-output' })];
++
++    const result = await scorer.run(createAgentTestRun({ inputMessages, output }));
++    expect(result.score).toBeLessThan(1);
++    expect(result.preprocessStepResult?.changes).toBe(2);
++  });
+ });
+diff --git a/packages/evals/src/scorers/code/textual-difference/index.ts b/packages/evals/src/scorers/code/textual-difference/index.ts
+index e59cd49..6bcdab9 100644
+--- a/packages/evals/src/scorers/code/textual-difference/index.ts
++++ b/packages/evals/src/scorers/code/textual-difference/index.ts
+@@ -95,23 +95,21 @@ function countChanges(input: string, output: string): number {
+ }
+ 
+ /**
+- * Finds the number of common words between two arrays using a greedy matching approach
++ * Finds the number of words the two arrays share in the same relative order
++ * (longest common subsequence), keeping only two rows of the table in memory.
+  */
+ function findCommonWords(arr1: string[], arr2: string[]): number {
+-  let matches = 0;
+-  const used = new Set<number>();
+-
+-  for (let i = 0; i < arr1.length; i++) {
+-    for (let j = 0; j < arr2.length; j++) {
+-      if (!used.has(j) && arr1[i] === arr2[j]) {
+-        matches++;
+-        used.add(j);
+-        break;
+-      }
++  let previous = new Array<number>(arr2.length + 1).fill(0);
++  let current = new Array<number>(arr2.length + 1).fill(0);
++
++  for (let i = 1; i <= arr1.length; i++) {
++    for (let j = 1; j <= arr2.length; j++) {
++      current[j] = arr1[i - 1] === arr2[j - 1] ? previous[j - 1]! + 1 : Math.max(previous[j]!, current[j - 1]!);
+     }
++    [previous, current] = [current, previous];
+   }
+ 
+-  return matches;
++  return previous[arr2.length]!;
+ }
+ 
+ export function createTextualDifferenceScorer() {

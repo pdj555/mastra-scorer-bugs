@@ -1,0 +1,41 @@
+diff --git a/packages/evals/src/scorers/code/content-similarity/index.test.ts b/packages/evals/src/scorers/code/content-similarity/index.test.ts
+index 19549c8..837b596 100644
+--- a/packages/evals/src/scorers/code/content-similarity/index.test.ts
++++ b/packages/evals/src/scorers/code/content-similarity/index.test.ts
+@@ -100,4 +100,16 @@ describe('ContentSimilarityMetric', () => {
+     const result = await scorer.run(createAgentTestRun({ inputMessages, output }));
+     expect(result.score).toBe(0);
+   });
++
++  it('should count whitespace differences when ignoreWhitespace is false', async () => {
++    const whitespaceSensitiveMetric = createContentSimilarityScorer({ ignoreCase: true, ignoreWhitespace: false });
++    const inputMessages = [createTestMessage({ content: 'New York', role: 'user', id: 'test-input' })];
++    const output = [createTestMessage({ content: 'NewYork', role: 'assistant', id: 'test-output' })];
++
++    const sensitive = await whitespaceSensitiveMetric.run(createAgentTestRun({ inputMessages, output }));
++    expect(sensitive.score).toBeLessThan(1);
++
++    const insensitive = await scorer.run(createAgentTestRun({ inputMessages, output }));
++    expect(insensitive.score).toBe(1);
++  });
+ });
+diff --git a/packages/evals/src/scorers/code/content-similarity/index.ts b/packages/evals/src/scorers/code/content-similarity/index.ts
+index 20d679d..3c0f41e 100644
+--- a/packages/evals/src/scorers/code/content-similarity/index.ts
++++ b/packages/evals/src/scorers/code/content-similarity/index.ts
+@@ -36,9 +36,13 @@ export function createContentSimilarityScorer(
+       };
+     })
+     .generateScore(({ results }) => {
++      // compareTwoStrings removes all whitespace itself. When whitespace should count,
++      // swap it for a private-use character so it stays part of the comparison.
++      const prepare = (text: string) => (ignoreWhitespace ? text : text.replace(/\s/g, '\uE000'));
++
+       const similarity = stringSimilarity.compareTwoStrings(
+-        results.preprocessStepResult?.processedInput,
+-        results.preprocessStepResult?.processedOutput,
++        prepare(results.preprocessStepResult?.processedInput),
++        prepare(results.preprocessStepResult?.processedOutput),
+       );
+ 
+       return similarity;

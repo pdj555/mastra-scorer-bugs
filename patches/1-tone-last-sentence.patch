@@ -1,0 +1,75 @@
+diff --git a/packages/evals/src/scorers/code/tone/index.test.ts b/packages/evals/src/scorers/code/tone/index.test.ts
+index a9461b5..3742370 100644
+--- a/packages/evals/src/scorers/code/tone/index.test.ts
++++ b/packages/evals/src/scorers/code/tone/index.test.ts
+@@ -166,5 +166,37 @@ describe('ToneConsistencyMetric', () => {
+       expect(Math.abs(metrics?.avgSentiment || 0)).toBeLessThan(0.2);
+       expect(metrics?.sentimentVariance).toBeLessThan(0.1);
+     });
++
++    it('should score the last sentence when it has no terminal punctuation', async () => {
++      const scorer = createToneScorer();
++      const text = 'Thank you for reaching out. I am happy to help. This is terrible garbage and I hate it';
++
++      const withoutPeriod = await scorer.run(
++        createAgentTestRun({ output: [createTestMessage({ content: text, role: 'assistant', id: 'test-output' })] }),
++      );
++      const withPeriod = await scorer.run(
++        createAgentTestRun({
++          output: [createTestMessage({ content: `${text}.`, role: 'assistant', id: 'test-output' })],
++        }),
++      );
++
++      expect(withoutPeriod.score).toBeCloseTo(withPeriod.score, 5);
++      expect(withoutPeriod.preprocessStepResult?.sentimentVariance).toBeGreaterThan(0.5);
++    });
++
++    it('should treat unpunctuated lines as separate sentences', async () => {
++      const scorer = createToneScorer();
++      const output = [
++        createTestMessage({
++          content: 'I love this\nI hate this awful garbage',
++          role: 'assistant',
++          id: 'test-output',
++        }),
++      ];
++
++      const result = await scorer.run(createAgentTestRun({ output }));
++      expect(result.preprocessStepResult?.sentimentVariance).toBeGreaterThan(0);
++      expect(result.score).toBeLessThan(1);
++    });
+   });
+ });
+diff --git a/packages/evals/src/scorers/code/tone/index.ts b/packages/evals/src/scorers/code/tone/index.ts
+index a0d6cab..35754f1 100644
+--- a/packages/evals/src/scorers/code/tone/index.ts
++++ b/packages/evals/src/scorers/code/tone/index.ts
+@@ -6,6 +6,19 @@ interface ToneScorerConfig {
+   referenceTone?: string;
+ }
+ 
++/**
++ * Splits text into sentences after terminal punctuation and at line breaks.
++ * Text after the last terminator is kept as its own sentence.
++ */
++function splitSentences(text: string): string[] {
++  const sentences = text
++    .split(/(?<=[.!?])\s+|\n+/)
++    .map(sentence => sentence.trim())
++    .filter(sentence => sentence.length > 0);
++
++  return sentences.length > 0 ? sentences : [text];
++}
++
+ export function createToneScorer(config: ToneScorerConfig = {}) {
+   const { referenceTone } = config;
+ 
+@@ -36,7 +49,7 @@ export function createToneScorer(config: ToneScorerConfig = {}) {
+       }
+ 
+       // Evaluate sentiment stability across response
+-      const sentences = agentMessage.match(/[^.!?]+[.!?]+/g) || [agentMessage];
++      const sentences = splitSentences(agentMessage);
+       const sentiments = sentences.map(s => sentiment.analyze(s).comparative);
+       const avgSentiment = sentiments.reduce((a, b) => a + b, 0) / sentiments.length;
+       const variance = sentiments.reduce((sum, s) => sum + Math.pow(s - avgSentiment, 2), 0) / sentiments.length;
